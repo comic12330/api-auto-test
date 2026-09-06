@@ -21,7 +21,7 @@ class RequestClient:
         """
         url = self.base_url.rstrip("/") + "/" + path.lstrip("/")
         kwargs.setdefault("timeout", self.timeout)
-        self.logger.info(f"【发送请求】：{method}，{path }")
+        self.logger.info(f"【发送请求】：{method}，{path}")
         resp = self.session.request(method, url, **kwargs)
         self.logger.info(f"【接收响应】HTTP {resp.status_code} | 耗时 {resp.elapsed.total_seconds():.2f}s")
         return resp

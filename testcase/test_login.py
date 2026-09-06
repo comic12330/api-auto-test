@@ -11,7 +11,7 @@ def test_login_success():
     resp = rc.request(
         "POST",
         "/admin/employee/login",
-        json={"username": "admin", "password": "123456"},
+        json={"username": config["auth"]["admin_username"], "password": config["auth"]["admin_password"]},
     )
     body = resp.json()
 
