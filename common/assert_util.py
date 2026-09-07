@@ -29,3 +29,7 @@ class AssertUtil:
     def has_key(dic, key, msg="缺少字段"):
         """结构断言：字段存在"""
         assert key in dic, f"{msg} | 实际keys={list(dic.keys())}, 期望有={key}"
+
+    @staticmethod
+    def not_empty(value, msg="值不应为空"):
+        assert value, f"{msg} | 实际={value!r}"

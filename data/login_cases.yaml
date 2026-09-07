@@ -1,0 +1,32 @@
+# 登录接口异常场景测试数据
+# expect_msg: null  → 不校验 msg（修复后返回值不确定，避免把猜测写成断言）
+cases:
+  - id: wrong-password
+    desc: 密码错误
+    username: admin
+    password: wrongpwd
+    expect_code: 0
+    expect_msg: 密码错误
+
+  - id: empty-password
+    desc: 密码为空
+    username: admin
+    password: ""
+    expect_code: 0
+    expect_msg: 密码错误
+
+  - id: user-not-exist
+    desc: 账号不存在
+    username: nonexistuser
+    password: "123456"
+    expect_code: 0
+    expect_msg: 账号不存在
+
+  - id: empty-username
+    desc: 已知缺陷：空用户名+默认密码可登录成功
+    username: ""
+    password: "123456"
+    expect_code: 0
+    expect_msg: null
+    xfail: true
+    reason: 缺陷：空用户名+默认密码123456可登录成功，返回id=75的token（新增员工未校验username非空）
