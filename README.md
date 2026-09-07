@@ -9,7 +9,7 @@
 ![requests](https://img.shields.io/badge/requests-2.32.3-orange)
 ![allure](https://img.shields.io/badge/allure-2.13.5-red)
 
-当前状态：**10 条用例，8 passed / 2 xfailed**（2 条 xfail 为已确认缺陷，见下方「实测发现的缺陷」）。
+当前状态：**12 条用例，10 passed / 2 xfailed**（2 条 xfail 为已确认缺陷，见下方「实测发现的缺陷」）。
 
 ---
 
@@ -24,14 +24,17 @@ api_auto_test/
 │   ├── assert_util.py    #   断言工具：equals / code_ok / not_empty / match ...
 │   ├── token_util.py     #   用户端 JWT 自签
 │   ├── yaml_util.py      #   yaml 读取（已处理 Windows 编码）
+│   ├── db_client.py      #   数据库访问封装（with 语句管理连接，防泄漏）
 │   ├── report_util.py    #   Allure 响应体附件
 │   └── logger.py
 ├── data/                 # 数据层：测试数据外置
-│   └── login_cases.yaml
+│   ├── login_cases.yaml
+│   └── dish_cases.yaml
 ├── testcase/             # 用例层：只写业务语义
 │   ├── test_login.py
-│   └── test_overage.py
-├── conftest.py           # fixture：admin_client / user_client / user_token
+│   ├── test_overage.py
+│   └── test_dish_db.py   #   DB 双层校验（接口响应 vs 数据库对账）
+├── conftest.py           # fixture：admin_client / user_client / user_token / db
 ├── config.example.yaml   # 配置模板（脱敏，入库）
 ├── config.yaml           # 真实配置（含密钥，不入库）
 └── pytest.ini
@@ -103,9 +106,13 @@ L1 HTTP 状态码 → L2 业务码 → L3 结构（字段是否存在）→ L4 �
 
 `xfail_strict = true` 配在 `pytest.ini`，保证 XPASS 一定报错。
 
+**6. DB 双层校验（对账）**
+接口断言只听后端自报成绩。`test_dish_db.py` 再直查数据库，比对"接口返回的菜品 id 集合"与"DB 查出的同分类、在售菜品 id 集合"是否一致——数量对、id 集合对，才算接口真的诚实。
+用 `with DBClient() as db:` 管理连接（防泄漏）；MySQL 连不上时 `db` fixture 直接 `pytest.skip`，不把环境问题伪装成业务失败刷红。
+
 ---
 
-## 用例清单（10 条）
+## 用例清单（12 条）
 
 | 模块 | 用例 | 说明 | 结果 |
 |---|---|---|---|
@@ -116,6 +123,7 @@ L1 HTTP 状态码 → L2 业务码 → L3 结构（字段是否存在）→ L4 �
 | 越权安全 | `test_admin_token_can_access_admin` | 管理端 token 调自己的接口 | passed（200） |
 | 越权安全 | `test_user_token_can_access_user` | 用户端 token 调用户端接口 | passed（200） |
 | 入参校验 | `test_dish_list_missing_categoryId_should_be_400` | 缺必填参数 | **xfailed** |
+| DB 双层校验 | `test_dish_list_matches_db` × 2 | 分类 11/12 菜品：接口返回 id 集合 vs 数据库对账 | passed |
 
 ---
 
@@ -156,7 +164,7 @@ L1 HTTP 状态码 → L2 业务码 → L3 结构（字段是否存在）→ L4 �
 诚实说明这个框架**现在做不到**什么：
 
 - **未接入 CI**。被测后端跑在本机 `localhost:8080`，云端没有这个服务，`base_url` 打空。要真接 CI 得先用 docker-compose 把被测系统 + MySQL + Redis 一起起起来。
-- **未做数据库断言**。响应断言只能验证接口返回值，落库是否正确还没校验（`PyMySQL` 已在依赖里，尚未使用）。
+- **DB 校验目前只覆盖"读对账"**。`test_dish_db.py` 验证接口返回与库一致（只读不写）；**未覆盖"写后落库"**——新增/下单后查库确认写进去了（需处理脏数据与事务回滚，见下一条待办）。
 - **未做接口依赖串联**。目前用例彼此独立，没有"下单 → 查订单"这类业务链路。
 - **环境依赖本地服务**，换机器要改 `config.yaml`。
 
