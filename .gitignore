@@ -1,3 +1,6 @@
+# 环境配置（含密码与密钥，禁止入库；请基于 config.example.yaml 创建）
+config.yaml
+
 # Python 缓存与虚拟环境
 .venv/
 __pycache__/
@@ -12,4 +15,8 @@ logs/
 
 # 临时验证脚本
 _test_*.py
+
+# Allure 报告产物（每次运行都会重新生成，不入库）
+allure-results/
+allure-report/
 
