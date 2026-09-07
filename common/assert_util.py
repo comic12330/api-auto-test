@@ -33,3 +33,8 @@ class AssertUtil:
     @staticmethod
     def not_empty(value, msg="值不应为空"):
         assert value, f"{msg} | 实际={value!r}"
+
+    @staticmethod
+    def not_equals(actual, expected, msg="值不应相等"):
+        """反向断言：用于"这个操作本该失败"的负向用例（如重复数据应被拒绝）。"""
+        assert actual != expected, f"{msg} | 实际={actual}, 不期望={expected}"
