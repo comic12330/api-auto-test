@@ -1,0 +1,17 @@
+# 菜品列表双端校验测试数据
+# 用途：同一分类的菜品，既走 HTTP 接口拿响应，又直查数据库，
+#       两端 id 集合一致 → 证明接口没有增删改数据库数据，返回诚实。
+# category_id 来自 sky_take_out.category 表，需在库里真实存在且该分类有菜品。
+
+cases:
+  - id: category-11-drinks
+    desc: 酒水饮料分类
+    category_id: 11        # category 表里 type=1，含 王老吉/北冰洋
+    expect_count: 2
+    note: 分类11下 status=1 的菜品应为2个
+
+  - id: category-12-staple
+    desc: 传统主食分类
+    category_id: 12        # 含 米饭/馒头，验证用例不是写死的
+    expect_count: 2
+    note: 分类12下 status=1 的菜品应为2个
