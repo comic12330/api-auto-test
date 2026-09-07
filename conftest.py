@@ -1,4 +1,6 @@
 import pytest
+
+from common.token_util import gen_user_token
 from common.yaml_util import load_config
 from common.request_client import RequestClient
 from api.login_api import login
@@ -16,5 +18,24 @@ def admin_client():
     rc = RequestClient(base_url)
     body, token = login(rc, admin_auth["admin_username"], admin_auth["admin_password"])
     rc.session.headers[admin_auth["admin_token_header"]] = token
+    return rc
 
+
+@pytest.fixture(scope="session")
+def user_token():
+    """
+    用户端 JWT（自签，本地替代微信授权）
+    """
+    return gen_user_token()
+
+
+@pytest.fixture(scope="session")
+def user_client(user_token):
+    """
+    用户端 client：带 authentication header
+    """
+    cnf = load_config()
+    base_url = cnf["base_url"]
+    rc = RequestClient(base_url)
+    rc.session.headers[cnf["auth"]["user_token_header"]] = user_token
     return rc
