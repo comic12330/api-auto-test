@@ -93,7 +93,7 @@ def created_employee(admin_client, db):
     emp_id = None
     payload = None
     try:
-        payload = build_employee_payload()      # 毫秒时间戳，字段值全局唯一
+        payload = build_employee_payload()      # auto_ + 运行标识 + 自增序号，字段值全局唯一
 
         body = add_employee(admin_client, payload).json()
         AssertUtil.code_ok(body, 1, "新增员工业务码")

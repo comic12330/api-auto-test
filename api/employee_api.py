@@ -8,7 +8,19 @@
 让"造数"和"清理"这两个动作在代码里挨着，形成造删对称，
 避免哪天只改了造数逻辑、忘了同步清理逻辑。
 """
+import itertools
 import time
+import uuid
+
+
+# 造数唯一性的两个来源（缺一不可，都被实测验证过）：
+#   _RUN_TAG —— 一次测试运行（进程）内固定的随机短标识，隔离【不同的进程 / 机器】。
+#   _SEQ     —— 进程内单调自增序号，隔离【同一进程内的多次调用】。
+# 为什么不能只靠毫秒时间戳：实测连续调用 100 次只生成出 2 个不同的 username
+# —— 同一毫秒内的调用返回值完全相同。而 employee.username 上有唯一索引，
+# 撞车就是 DuplicateKeyException，这个失败跟被测业务无关，纯属浪费排查时间。
+_RUN_TAG = uuid.uuid4().hex[:6]
+_SEQ = itertools.count(1)
 
 
 def build_employee_payload(id_number=None, ts=None):
@@ -16,16 +28,22 @@ def build_employee_payload(id_number=None, ts=None):
 
     唯一性是数据隔离的前提：employee.username 上有唯一索引，
     两次运行撞车会直接失败，而这个失败**跟被测业务逻辑无关**。
-    用毫秒时间戳 + 固定前缀，保证每次运行都不重复。
+
+    username = `auto_` + 运行标识 + 自增序号：
+      - `auto_` 前缀 → 一眼认出是自动化数据，残留时可安全按标记清理
+      - 运行标识     → 隔离并发的进程 / 机器（pytest-xdist、多机 CI）
+      - 自增序号     → 隔离同一进程内的多次调用。**真正保证唯一的是它，
+                       不是时间戳**（时间戳做不到，见上面的实测）
 
     :param id_number: 想复用别人的身份证号时传入（用于重复校验用例）
-    :param ts: 时间戳种子，一般不用传
+    :param ts: 只用于生成 phone / idNumber 的随机部分，不参与唯一性保证
     """
     ts = ts or int(time.time() * 1000)
+    seq = next(_SEQ)
     return {
-        "name": f"自动化{ts}",
-        "username": f"auto_{ts}",                            # varchar(32)，唯一索引
-        "phone": f"139{ts % 100000000:08d}",                 # varchar(11)
+        "name": f"自动化{_RUN_TAG}_{seq}",
+        "username": f"auto_{_RUN_TAG}_{seq}",                            # varchar(32)，唯一索引
+        "phone": f"139{seq % 100000000:08d}",                            # varchar(11)
         "sex": "1",                                          # varchar(2)
         "idNumber": id_number or f"31010119900101{ts % 10000:04d}",  # varchar(18)
     }
