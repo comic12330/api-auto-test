@@ -73,13 +73,9 @@ class DBClient:
         若哪天改成 autocommit=False，则必须在 execute 末尾补 self.conn.commit()，
         否则 DELETE 只在当前连接内"看起来生效"，换连接看数据还在 ——
         表现为"用例全绿、脏数据越堆越多"。
+
+        注意：autocommit 与手动 commit 是二选一。绝不能既不开 autocommit、
+        又不 commit —— 那等于写操作全部无效。
         """
         with self.conn.cursor() as cur:
             return cur.execute(sql, params)
-
-    def execute(self, sql, params=None):
-        """执行写操作（INSERT/UPDATE/DELETE），返回受影响行数。"""
-        with self.conn.cursor() as cur:
-            n = cur.execute(sql, params)
-        self.conn.commit()
-        return n
