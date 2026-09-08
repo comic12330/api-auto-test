@@ -9,7 +9,7 @@
 ![requests](https://img.shields.io/badge/requests-2.32.3-orange)
 ![allure](https://img.shields.io/badge/allure-2.13.5-red)
 
-当前状态：**17 条用例，14 passed / 3 xfailed**（3 条 xfail 为已确认缺陷，见下方「实测发现的缺陷」）。
+当前状态：**20 条用例，17 passed / 3 xfailed**（3 条 xfail 为已确认缺陷，见下方「实测发现的缺陷」）。
 
 ---
 
@@ -142,14 +142,30 @@ list_dish(user_client, "${category_id}", extract={"dish_id": "$.data[0].id"})
 add_to_cart(user_client, "${dish_id}")
 ```
 
-- **提取**：`jsonpath` 表达式取代一层层 `[]`，结构变了只改表达式；取不到时报**人话**错（带表达式和响应片段），不是 `list index out of range`
+- 提取失败报人话错（带表达式 + 响应片段），不是 `list index out of range`
+
+**9. 下单业务链路：跨端 token 切换 + 多表联动**
+
+用户端下单 → 管理端履约（接单 → 派送 → 完成），状态流转 **2 待接单 → 3 已接单 → 4 派送中 → 5 已完成**。
+每一步都做接口 + DB 双层断言：`code=1` 只说明"接口没报错"，状态推进到哪一步只有查库才知道。
+
+三个必须说清楚的工程决策：
+
+- **用 DB 把状态推进到「待接单」**：`submit` 之后是 1（待付款），而 `confirm` 在后端有硬校验 **status 必须 = 2 才给接单**。1→2 要走 `/user/order/payment`，而它调真实微信支付，本地必然失败。
+  ⚠️ 这是**环境妥协，不是设计**——妥协被严格限制在一行 SQL，之后的接单/派送/完成全是接口驱动。面试时要主动说出来，别等被问。
+- **teardown 用 DB 删而非接口取消**：订单**没有删除接口**，`cancel` 只是把状态改成 6，记录还在。要可重复执行只能直连 DB 删，且**必须先删 `order_detail` 再删 `orders`**（外键约束，顺序反了直接报错）。
+- **依赖 `empty_cart`**：`submit` 会把购物车里所有商品转成订单，购物车不干净则金额和明细数量不可控。
+
+> ℹ️ 实测发现的**既存**数据问题（非本框架引入）：`orders` 1664 行，`order_detail` 4617 行，其中 **2878 条明细的 `order_id` 在 `orders` 表里已不存在**（order_id 范围 26–2527，而 orders 表 id 已到 4174）。即历史上删过订单但没连带删明细。本框架 3 条链路用例的订单残留为 0。
+
+---
 - **渲染**：`${var}` 支持嵌套结构（dict/list 递归替换）。整个字符串就是一个变量时**保留原类型**——`${dish_id}` 渲染成 `int 66` 而不是 `"66"`，否则后端反序列化可能失败
 - **变量取不到时原样返回** `${not_exist}`，不静默替换成 `None`——让错误在接口层暴露出来，而不是变成一次"查不到数据"的假绿
 - **每个用例开跑前清空变量池**（`_fresh_context` autouse fixture）。client 是 session 级的，不清的话用例 A 的 `category_id` 会残留到用例 B，B 提取失败时会**静默用上 A 的旧值**，这种假绿极难排查。已用 `test_context_is_empty_at_start` 把这条守卫固化成用例
 
 ---
 
-## 用例清单（17 条）
+## 用例清单（20 条）
 
 | 模块 | 用例 | 说明 | 结果 |
 |---|---|---|---|
@@ -166,6 +182,9 @@ add_to_cart(user_client, "${dish_id}")
 | 接口串联 | `test_cart_add_by_chain` | 分类 → 菜品 → 购物车三步串联，每步输入来自上一步输出 | passed |
 | 接口串联 | `test_cart_add_written_to_db` | 串联 + DB 双层校验：加购物车后查 `shopping_cart` 表 | passed |
 | 接口串联 | `test_context_is_empty_at_start` | 每个用例开始时变量池必须为空（防用例间串味的守卫用例） | passed |
+| 下单链路 | `test_order_full_lifecycle` | 跨端履约：用户下单 → 接单 → 派送 → 完成，每步查库对账 | passed |
+| 下单链路 | `test_order_submit_written_to_db` | 多表联动：`orders` + `order_detail` 落库，购物车被清空 | passed |
+| 下单链路 | `test_order_cancel_by_user` | 逆向流程：用户端取消，状态转已取消(6) | passed |
 
 ---
 

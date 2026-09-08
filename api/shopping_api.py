@@ -14,6 +14,15 @@ api 层不替用例做这个决定 —— 否则换个场景就要回来改 api 
 """
 
 
+def get_default_address(rc, **kw):
+    """GET /user/addressBook/default 取默认收货地址。
+
+    下单必填 `addressBookId`，所以这一步是下单链路的第一环。
+    用默认地址而不是写死 id：写死的话换环境就废了。
+    """
+    return rc.request("GET", "/user/addressBook/default", **kw)
+
+
 def list_category(rc, category_type=1, **kw):
     """GET /user/category/list 查询分类列表。
 

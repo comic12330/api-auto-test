@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from common.assert_util import AssertUtil
@@ -7,7 +9,17 @@ from common.yaml_util import load_config
 from common.request_client import RequestClient
 from common.db_client import DBClient
 from api.login_api import login
-from api.shopping_api import clean_cart
+from api.shopping_api import (
+    add_to_cart,
+    clean_cart,
+    get_default_address,
+    list_category,
+    list_dish,
+)
+from api.order_api import (
+    delete_order_by_id,
+    submit_order,
+)
 from api.employee_api import (
     add_employee,
     build_employee_payload,
@@ -102,6 +114,55 @@ def empty_cart(user_client):
     except Exception as e:
         # 同 created_employee：清理失败只告警，别让辅助动作盖掉真正的失败原因
         get_logger().warning(f"清理购物车失败：{e}")
+
+
+@pytest.fixture
+def submitted_order(user_client, db, empty_cart):
+    """造一张「待接单」的订单 → 把 order_id 交给用例 → 用 DB 删除收尾。
+
+    这条 fixture 有三个必须解释清楚的设计点（面试官会追问）：
+
+    1. **为什么 teardown 用 DB 删，而不是调接口取消？**
+       订单**没有删除接口** —— `cancel` 只是把状态改成 6（已取消），记录还在表里。
+       要让用例能重复跑，只能直连 DB 删，而且要连带删 `order_detail`，
+       否则留下孤儿明细。删除顺序：先明细后主表（外键约束）。
+
+    2. **为什么用一行 SQL 把状态推进到「待接单」？**
+       submit 之后状态是 1（待付款），而 `confirm` 在后端有硬校验：
+       **status 必须等于 2 才给接单**。1 → 2 要走 `/user/order/payment`，
+       而它调真实微信支付，本地必然失败。
+       ⚠️ 这是**环境妥协，不是设计**。妥协范围被严格限制在这一行 SQL：
+       之后的接单 / 派送 / 完成全是接口驱动，断言也全基于接口 + DB。
+
+    3. **为什么要依赖 empty_cart？**
+       submit 会把购物车里**所有**商品转成订单。购物车不干净，
+       订单金额和明细数量就不可控，断言根本没法写。
+    """
+    # ① 取默认地址（下单必填 addressBookId，用默认地址而不是写死 id）
+    get_default_address(user_client, extract={"address_id": "$.data.id"})
+    address_id = user_client.ctx.get("address_id")
+    assert address_id is not None, "未取到默认地址，无法下单"
+
+    # ② 加一个菜品进购物车（串联：分类 → 菜品 → 购物车）
+    list_category(user_client, extract={"category_id": "$.data[0].id"})
+    list_dish(user_client, "${category_id}", extract={"dish_id": "$.data[0].id"})
+    add_to_cart(user_client, "${dish_id}")
+
+    # ③ 提交订单，remark 打自动化标记（万一清理失败，能一眼认出并手工清）
+    body = submit_order(user_client, "${address_id}",
+                        remark=f"AUTO_TEST_{int(time.time())}").json()
+    AssertUtil.code_ok(body, 1, "提交订单")
+    order_id = body["data"]["id"]
+
+    # ④ 跳过支付：把状态推进到「待接单」，理由见上面第 2 点
+    db.execute("UPDATE orders SET status=2 WHERE id=%s", (order_id,))
+
+    yield order_id
+
+    try:
+        delete_order_by_id(db, order_id)
+    except Exception as e:
+        get_logger().warning(f"清理订单失败 id={order_id}：{e}")
 
 
 @pytest.fixture

@@ -1,0 +1,126 @@
+# -*- coding: utf-8 -*-
+"""order_api.py —— 订单接口封装（用户端下单 / 管理端履约）。
+
+完整业务链路（这是整个框架最难也最值钱的一条）：
+
+    用户端 submit(下单)   → status 1 待付款
+    → payment(支付)       → status 2 待接单      ← 调微信支付，本地跑不通
+    → 管理端 confirm      → status 3 已接单
+    → 管理端 delivery     → status 4 派送中
+    → 管理端 complete     → status 5 已完成
+
+状态常量（源码 `sky-pojo/.../entity/Orders.java`，别背错）：
+    1 待付款 | 2 待接单 | 3 已接单 | 4 派送中 | 5 已完成 | 6 已取消
+
+⚠️ 关键约束：`confirm()` 在 `OrderServiceImpl` 里有硬校验
+**`status` 必须等于 2（待接单）才允许接单**，否则抛异常。
+所以从"待付款"到"待接单"必须走一步 —— 走不通就得用 DB 推进，
+这一点在 `conftest.submitted_order` 里写清楚了。
+"""
+from datetime import datetime, timedelta
+
+
+def submit_order(rc, address_book_id, remark=None, pay_method=1, **kw):
+    """POST /user/order/submit 提交订单（用户端）。
+
+    :param address_book_id: 地址簿 id，必填
+    :param pay_method: 1 微信 / 2 支付宝
+    :param remark: 备注。自动化用例建议传带标记的值，方便事后识别脏数据
+    :return: 响应对象。`data` 里含 `id`（订单主键）和 `orderNumber`
+    """
+    eta = (datetime.now() + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+    return rc.request("POST", "/user/order/submit", json={
+        "addressBookId": address_book_id,
+        "payMethod": pay_method,
+        "remark": remark,
+        "estimatedDeliveryTime": eta,      # 格式 yyyy-MM-dd HH:mm:ss，后端 @JsonFormat 有要求
+        "deliveryStatus": 1,               # 1 立即送出
+        "tablewareNumber": 1,
+        "tablewareStatus": 1,              # 1 按餐量提供
+        "packAmount": 1,
+        "amount": 0,                       # 后端会按购物车重算，这里传什么都会被覆盖
+    }, **kw)
+
+
+def pay_order(rc, order_number, pay_method=1, **kw):
+    """PUT /user/order/payment 支付（用户端）。
+
+    ⚠️ 本环境**跑不通**：后端要调 `WeChatPayUtil` 走真实微信支付。
+    保留这个方法是为了说明链路完整性，用例里不调用它。
+    """
+    return rc.request("PUT", "/user/order/payment", json={
+        "orderNumber": order_number,
+        "payMethod": pay_method,
+    }, **kw)
+
+
+def cancel_order(rc, order_id, **kw):
+    """PUT /user/order/cancel/{id} 取消订单（用户端）。"""
+    return rc.request("PUT", f"/user/order/cancel/{order_id}", **kw)
+
+
+def get_user_order_detail(rc, order_id, **kw):
+    """GET /user/order/orderDetail/{id} 查订单详情（用户端）。"""
+    return rc.request("GET", f"/user/order/orderDetail/{order_id}", **kw)
+
+
+# ---------- 管理端：履约 ----------
+
+def confirm_order(rc, order_id, **kw):
+    """PUT /admin/order/confirm 接单。
+
+    请求体是 `{id, status}`，不是只传 id —— 这个 DTO 有个 status 字段，
+    传错或漏传会导致接单失败。
+    """
+    return rc.request("PUT", "/admin/order/confirm", json={
+        "id": order_id,
+        "status": 3,                       # 已接单
+    }, **kw)
+
+
+def delivery_order(rc, order_id, **kw):
+    """PUT /admin/order/delivery/{id} 派送。"""
+    return rc.request("PUT", f"/admin/order/delivery/{order_id}", **kw)
+
+
+def complete_order(rc, order_id, **kw):
+    """PUT /admin/order/complete/{id} 完成。"""
+    return rc.request("PUT", f"/admin/order/complete/{order_id}", **kw)
+
+
+def get_admin_order_detail(rc, order_id, **kw):
+    """GET /admin/order/details/{id} 查订单详情（管理端）。"""
+    return rc.request("GET", f"/admin/order/details/{order_id}", **kw)
+
+
+# ---------- DB：对账与清理 ----------
+# 按本项目的约定（见 employee_api.py），同一业务模块的 DB 查询也收在这里，
+# 让"造数/对账/清理"三件事在代码里挨着。
+
+def select_order_by_id(db, order_id):
+    """按主键查订单主记录；没查到返回 None。"""
+    return db.query_one(
+        "SELECT id, number, status, user_id, amount, pay_status FROM orders WHERE id=%s",
+        (order_id,),
+    )
+
+
+def select_order_details(db, order_id):
+    """查订单明细（一个订单可能有多条，对应多个菜品）。"""
+    return db.query(
+        "SELECT id, order_id, dish_id, name, number, amount FROM order_detail WHERE order_id=%s",
+        (order_id,),
+    )
+
+
+def delete_order_by_id(db, order_id):
+    """按主键删除订单及其明细（测试环境专用清理动作）。
+
+    为什么要直接删库：订单**没有删除接口**，`cancel` 只是把状态改成 6，
+    记录还在表里。要让用例可重复执行，只能直连 DB 删。
+
+    ⚠️ 必须先删明细再删主表：`order_detail.order_id` 有外键指向 `orders`，
+    顺序反了会报外键约束错误。这个顺序本身就是个考点。
+    """
+    db.execute("DELETE FROM order_detail WHERE order_id=%s", (order_id,))
+    return db.execute("DELETE FROM orders WHERE id=%s", (order_id,))
