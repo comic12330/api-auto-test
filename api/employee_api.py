@@ -55,3 +55,14 @@ def delete_employee_by_id(db, emp_id):
     条件越宽，误伤面越大。清理动作也要遵守最小影响面原则。
     """
     return db.execute("DELETE FROM employee WHERE id=%s", (emp_id,))
+
+
+def delete_employee_by_username(db, username):
+    """按 username 精确删除（主键拿不到时的兜底锚点）。
+
+    为什么它也是安全的：username 上有唯一索引，`WHERE username=%s`
+    是唯一键精确匹配，**最多命中 1 行** —— 不是 LIKE 那种会误伤的模糊条件。
+    用在「接口已写库但 select 没查到 id」这种极端场景：宁可多一个兜底，
+    也不能让数据留在库里。
+    """
+    return db.execute("DELETE FROM employee WHERE username=%s", (username,))

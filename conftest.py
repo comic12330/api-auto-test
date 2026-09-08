@@ -11,6 +11,7 @@ from api.employee_api import (
     add_employee,
     build_employee_payload,
     delete_employee_by_id,
+    delete_employee_by_username,
     select_employee_by_username,
 )
 
@@ -75,30 +76,49 @@ def created_employee(admin_client, db):
     这是「数据隔离策略④：造删对称」的落地。yield 把一段函数劈成两半：
       - yield 之前 = setup：造数据、查主键
       - yield 之后 = teardown：按主键清理
-    pytest 保证 teardown 一定执行 —— 即使用例断言失败、甚至抛异常。
+    用例无论断言成败还是抛异常，pytest 都会再驱动一次生成器，让 yield 之后的代码跑完。
     这比 unittest 的 tearDown() 可靠：后者在 setUp() 抛异常时根本不会跑，
     而那恰恰是最需要清理的时刻。
+
+    但 yield 有个必须知道的前提（实测过）：
+    **pytest 只对「已经执行到 yield」的 fixture 跑 yield 之后的语句。**
+    如果 setup 段在 yield 之前就挂了（比如接口成功写库但 select 查不到 id），
+    员工已经进库了，而 yield 之后的清理永远不执行 —— 数据残留。
+    所以这里用 try/finally 而不是把清理写在 yield 之后：
+    finally 由 Python 语言保证，异常穿过生成器时也一定执行。
 
     返回 (emp_id, payload, row)：把落库记录 row 也交给用例，
     省得用例再查一遍库（也保证用例断言的就是 setup 那一刻的数据）。
     """
-    payload = build_employee_payload()          # 毫秒时间戳，字段值全局唯一
-
-    body = add_employee(admin_client, payload).json()
-    AssertUtil.code_ok(body, 1, "新增员工业务码")
-
-    row = select_employee_by_username(db, payload["username"])
-    # 先断一句人话，再去取 row["id"]。
-    # 不做这步，下一行会抛 TypeError: 'NoneType' object is not subscriptable
-    # —— 报错方向对（确实没落库），但看不出是哪个 username、接口返回了什么。
-    assert row is not None, f"新增员工未落库：username={payload['username']}，响应={body}"
-
-    yield row["id"], payload, row
-
+    emp_id = None
+    payload = None
     try:
-        delete_employee_by_id(db, row["id"])
-    except Exception as e:
-        # 清理是辅助动作。它一旦抛异常，pytest 会把用例标成 ERROR，
-        # 你看到的就变成"清理失败"而不是"断言失败"——真正的问题被盖住。
-        # 清理失败值得告警，不值得判死刑。
-        get_logger().warning(f"清理员工失败 id={row['id']}: {e}")
+        payload = build_employee_payload()      # 毫秒时间戳，字段值全局唯一
+
+        body = add_employee(admin_client, payload).json()
+        AssertUtil.code_ok(body, 1, "新增员工业务码")
+
+        row = select_employee_by_username(db, payload["username"])
+        # 先断一句人话，再去取 row["id"]。
+        # 不做这步，下一行会抛 TypeError: 'NoneType' object is not subscriptable
+        # —— 报错方向对（确实没落库），但看不出是哪个 username、接口返回了什么。
+        assert row is not None, f"新增员工未落库：username={payload['username']}，响应={body}"
+
+        emp_id = row["id"]
+        yield emp_id, payload, row
+    finally:
+        # 用 finally 而不是把清理写在 yield 之后：
+        # pytest 只对「已经执行到 yield」的 fixture 跑 yield 之后的语句。
+        # 一旦 setup 段在 yield 之前挂掉（上面任意一步都可能），
+        # 员工已经写进库了，而清理代码永远不会执行 —— 数据就残留在库里。
+        # try/finally 由 Python 语言保证：异常穿过生成器时 finally 一定执行。
+        try:
+            if emp_id is not None:                      # 正常路径：按主键删
+                delete_employee_by_id(db, emp_id)
+            elif payload is not None:                   # 兜底：id 没拿到就按唯一键删
+                delete_employee_by_username(db, payload["username"])
+        except Exception as e:
+            # 清理是辅助动作。它一旦抛异常，pytest 会把用例标成 ERROR，
+            # 你看到的就变成"清理失败"而不是"断言失败"——真正的问题被盖住。
+            # 清理失败值得告警，不值得判死刑。
+            get_logger().warning(f"清理员工失败 id={emp_id}: {e}")
