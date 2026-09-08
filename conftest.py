@@ -7,6 +7,7 @@ from common.yaml_util import load_config
 from common.request_client import RequestClient
 from common.db_client import DBClient
 from api.login_api import login
+from api.shopping_api import clean_cart
 from api.employee_api import (
     add_employee,
     build_employee_payload,
@@ -67,6 +68,40 @@ def user_client(user_token):
     rc = RequestClient(base_url)
     rc.session.headers[cnf["auth"]["user_token_header"]] = user_token
     return rc
+
+
+@pytest.fixture(autouse=True)
+def _fresh_context(user_client, admin_client):
+    """每个用例开跑前清空变量池（autouse，用例不用显式引用）。
+
+    为什么必须清：client 是 session 级的，变量池挂在 client 上。
+    不清的话，用例 A 提取的 category_id 会残留到用例 B ——
+    万一 B 的提取失败，它会**静默用上 A 的旧值**，用例照样绿。
+    这种"假绿"比直接报错难查十倍，因为它看起来一切正常。
+    """
+    user_client.ctx.clear()
+    admin_client.ctx.clear()
+    yield
+
+
+@pytest.fixture
+def empty_cart(user_client):
+    """购物车清理：进入时清一次保证基线干净，退出时再清一次不留脏数据。
+
+    为什么**两头都清**（这是跟 created_employee 不一样的地方）：
+    created_employee 的数据是自己造的，库里本来没有；
+    而购物车是 user 表 id=4 这个**真实用户**的数据，库里可能本来就有东西
+    （别的用例残留的、或者手工调试留下的）。
+      - 只在 teardown 清 → 断言"购物车里有 1 件"会被存量数据带偏；
+      - 只在 setup 清   → 用例自己产生的脏数据会留给下一次运行。
+    """
+    clean_cart(user_client)
+    yield user_client
+    try:
+        clean_cart(user_client)
+    except Exception as e:
+        # 同 created_employee：清理失败只告警，别让辅助动作盖掉真正的失败原因
+        get_logger().warning(f"清理购物车失败：{e}")
 
 
 @pytest.fixture

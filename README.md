@@ -9,7 +9,7 @@
 ![requests](https://img.shields.io/badge/requests-2.32.3-orange)
 ![allure](https://img.shields.io/badge/allure-2.13.5-red)
 
-当前状态：**14 条用例，11 passed / 3 xfailed**（3 条 xfail 为已确认缺陷，见下方「实测发现的缺陷」）。
+当前状态：**17 条用例，14 passed / 3 xfailed**（3 条 xfail 为已确认缺陷，见下方「实测发现的缺陷」）。
 
 ---
 
@@ -117,7 +117,8 @@ L1 HTTP 状态码 → L2 业务码 → L3 结构（字段是否存在）→ L4 �
 写操作必然污染数据库，所以用**唯一标记 + 造删对称**处理：
 - 造数用 `auto_` + 运行标识（uuid 短码）+ 进程内自增序号 构造全局唯一字段值，撞上唯一索引的失败**与被测业务无关**，必须避免；
   ⚠️ 别只依赖毫秒时间戳：实测连续生成 100 次只得到 **2 个**不同值（同一毫秒内返回相同结果）；
-- `created_employee` fixture 用 **yield 两段式**：`yield` 前造数并查库拿主键，`yield` 后 `DELETE WHERE id=?` 清理。**pytest 保证 teardown 一定执行**，即使用例断言失败或抛异常——这比 unittest 的 `tearDown()` 可靠（后者在 `setUp()` 抛异常时根本不跑，而那恰恰最需要清理）；
+- `created_employee` fixture 用 **yield 两段式**：`yield` 前造数并查库拿主键，`yield` 后清理；
+- ⚠️ **清理写在 `try/finally` 里，不是直接写在 `yield` 之后**。原因（实测）：pytest 只对**已经执行到 yield** 的 fixture 跑 yield 之后的语句。一旦 setup 段在 yield 之前挂掉（比如接口写库成功但查主键失败），员工已经进库而清理永不执行。实测对照：清理写在 yield 之后 → 残留 1 条；改用 `try/finally` → 残留 0 条；
 - 清理**只按主键**，绝不用 `WHERE username LIKE 'auto_%'` 这类模糊条件：条件越宽误伤面越大，清理动作也要遵守最小影响面；
 - 清理失败只 `logger.warning` 不抛异常——否则用例被标成 ERROR，"清理失败"会盖住真正的"断言失败"。
 
@@ -125,9 +126,30 @@ L1 HTTP 状态码 → L2 业务码 → L3 结构（字段是否存在）→ L4 �
 
 > ⚠️ **踩过的坑**：`pymysql` 默认 `autocommit=False`，第一条 SELECT 就隐式开启事务；MySQL InnoDB 默认 `REPEATABLE READ`，同一事务内是快照读——**后端应用（另一个连接）刚提交的新行读不到**，表现为"POST 返回成功，紧接着 SELECT 查不到"，用例假红且伪装成后端 bug。故 `DBClient` 连接显式开 `autocommit=True`。代价是写操作不可回滚，但黑盒 API 测试本就拿不到后端事务句柄，可接受。
 
+**8. 接口串联：jsonpath 提取 + 上下文变量池 + `${}` 渲染**
+
+接口之间有依赖：查菜品要用"查分类"拿到的 `categoryId`，加购物车要用"查菜品"拿到的 `dishId`。
+如果每个用例都手写 `resp.json()["data"][0]["id"]`，一来重复，二来响应结构一变要改 N 处，三来**没法写进 YAML**（数据驱动就废了）。
+
+所以拆成三件事（见 `common/context.py`）：
+
+```python
+# 提取：用 jsonpath 表达式取值，存进变量池
+list_category(user_client, extract={"category_id": "$.data[0].id"})
+
+# 渲染：请求里的 ${var} 发请求前自动替换成真实值
+list_dish(user_client, "${category_id}", extract={"dish_id": "$.data[0].id"})
+add_to_cart(user_client, "${dish_id}")
+```
+
+- **提取**：`jsonpath` 表达式取代一层层 `[]`，结构变了只改表达式；取不到时报**人话**错（带表达式和响应片段），不是 `list index out of range`
+- **渲染**：`${var}` 支持嵌套结构（dict/list 递归替换）。整个字符串就是一个变量时**保留原类型**——`${dish_id}` 渲染成 `int 66` 而不是 `"66"`，否则后端反序列化可能失败
+- **变量取不到时原样返回** `${not_exist}`，不静默替换成 `None`——让错误在接口层暴露出来，而不是变成一次"查不到数据"的假绿
+- **每个用例开跑前清空变量池**（`_fresh_context` autouse fixture）。client 是 session 级的，不清的话用例 A 的 `category_id` 会残留到用例 B，B 提取失败时会**静默用上 A 的旧值**，这种假绿极难排查。已用 `test_context_is_empty_at_start` 把这条守卫固化成用例
+
 ---
 
-## 用例清单（14 条）
+## 用例清单（17 条）
 
 | 模块 | 用例 | 说明 | 结果 |
 |---|---|---|---|
@@ -141,6 +163,9 @@ L1 HTTP 状态码 → L2 业务码 → L3 结构（字段是否存在）→ L4 �
 | DB 双层校验 | `test_dish_list_matches_db` × 2 | 分类 11/12 菜品：接口返回 id 集合 vs 数据库对账 | passed |
 | DB 写后落库 | `test_employee_created_in_db` | 新增员工后直查库：字段一致 + status=1 + 密码 MD5 落库 | passed |
 | 数据完整性 | `test_id_number_duplicate_should_be_rejected` | 相同身份证号再次新增应被拒绝 | **xfailed** |
+| 接口串联 | `test_cart_add_by_chain` | 分类 → 菜品 → 购物车三步串联，每步输入来自上一步输出 | passed |
+| 接口串联 | `test_cart_add_written_to_db` | 串联 + DB 双层校验：加购物车后查 `shopping_cart` 表 | passed |
+| 接口串联 | `test_context_is_empty_at_start` | 每个用例开始时变量池必须为空（防用例间串味的守卫用例） | passed |
 
 ---
 
