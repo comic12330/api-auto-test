@@ -20,6 +20,13 @@ from api.order_api import (
     delete_order_by_id,
     submit_order,
 )
+from api.category_api import (
+    add_category,
+    build_category_payload,
+    delete_category_by_id,
+    delete_category_by_name,
+    select_category_by_name,
+)
 from api.employee_api import (
     add_employee,
     build_employee_payload,
@@ -163,6 +170,48 @@ def submitted_order(user_client, db, empty_cart):
         delete_order_by_id(db, order_id)
     except Exception as e:
         get_logger().warning(f"清理订单失败 id={order_id}：{e}")
+
+
+@pytest.fixture
+def created_category(admin_client, db):
+    """造一个分类 → 把主键交给用例 → 无论断言成败都精确删除。
+
+    结构跟下面的 created_employee 一模一样，是同一套造删对称思路的复用：
+      - 用 try/finally 而不是把清理写在 yield 之后：
+        pytest 只对「已经执行到 yield」的 fixture 跑 yield 之后的代码，
+        setup 段一旦在 yield 之前挂掉，数据已经进库而清理永远不执行。
+        try/finally 由 Python 语言保证，异常穿过生成器时也一定执行。
+      - 清理锚点主键优先，拿不到就退回唯一键 name（name 有唯一索引，最多命中 1 行）
+      - 清理失败只 warning 不抛异常：抛了 pytest 标 ERROR，
+        "清理失败"会盖住真正的"断言失败"
+
+    返回 (category_id, payload, row)：row 是查库拿到的整条记录，
+    直接交给用例当断言数据源，省得用例再查一遍。
+    """
+    category_id = None
+    payload = None
+    try:
+        payload = build_category_payload()      # auto_ + 运行标识 + 自增序号，name 全局唯一
+
+        body = add_category(admin_client, payload).json()
+        AssertUtil.code_ok(body, 1, "新增分类业务码")
+
+        row = select_category_by_name(db, payload["name"])
+        # 同样是先断一句人话再取 row["id"]：
+        # 否则报的是 TypeError: 'NoneType' object is not subscriptable，
+        # 看不出是哪个 name、接口返回了什么。
+        assert row is not None, f"新增分类未落库：name={payload['name']}，响应={body}"
+
+        category_id = row["id"]
+        yield category_id, payload, row
+    finally:
+        try:
+            if category_id is not None:                     # 正常路径：按主键删
+                delete_category_by_id(db, category_id)
+            elif payload is not None:                       # 兜底：id 没拿到就按唯一键删
+                delete_category_by_name(db, payload["name"])
+        except Exception as e:
+            get_logger().warning(f"清理分类失败 id={category_id}: {e}")
 
 
 @pytest.fixture
