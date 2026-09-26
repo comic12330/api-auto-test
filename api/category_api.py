@@ -13,7 +13,6 @@
 import itertools
 import uuid
 
-
 # 造数唯一性（跟 employee 同一个套路，原因相同）：
 #   _RUN_TAG —— 隔离不同进程 / 机器
 #   _SEQ     —— 隔离同一进程内的多次调用。真正保证唯一的是它，不是时间戳
@@ -35,7 +34,7 @@ def build_category_payload(name=None, category_type=1, sort=None):
     """
     seq = next(_SEQ)
     return {
-        "name": name or f"auto_{_RUN_TAG}_{seq}",   # varchar(32)，唯一索引
+        "name": name or f"auto_{_RUN_TAG}_{seq}",  # varchar(32)，唯一索引
         "type": category_type,
         "sort": sort if sort is not None else seq,
     }
@@ -89,3 +88,42 @@ def delete_category_by_name(db, name):
     **最多命中 1 行**，不是会误伤的模糊条件。
     """
     return db.execute("DELETE FROM category WHERE name=%s", (name,))
+
+
+def edit_category_by_id(rc, payload):
+    """PUT /admin/category —— **走接口**修改分类。
+
+    body 对应后端 CategoryDTO：`id` / `name` / `type` / `sort`，
+    四个字段都可选，但**没有 id 就不知道该改谁**。
+
+    两个来自源码的注意点（CategoryServiceImpl.edit，已读代码确认）：
+      - 方法名是 `edit()` 不是 `update()`
+      - Mapper 的 `<update>` 用 `<set>` + `<if test="x != null">` 动态 SQL，
+        即**只更新传了的字段**，没传的保持原值、不会被置 null。
+        由此多出一个高价值断言：**只改 name 时 type/sort 应保持不变**，
+        可用来验证部分更新没有误清空其他字段。
+    """
+    return rc.request("PUT", "/admin/category", json=payload)
+
+
+def get_category_page(rc, page, page_size, name=None, category_type=None):
+    """GET /admin/category/page —— 分页查询分类，返回响应对象。
+
+    ⚠️ 参数名必须跟后端 DTO 字段**逐字一致**（CategoryPageQueryDTO）：
+    分页大小叫 `pageSize`，不是 `page_size`。写错 Spring 绑定不上，
+    也**不会报错**，只会静默取默认值 —— 表现为"分页参数好像没生效"。
+
+    `name` / `type` 是可选筛选条件，为 None 时不带这个参数
+    （requests 会跳过值为 None 的 param），避免拼出 `name=` 空串，
+    把"不过滤"变成"筛 name 为空"。
+
+    :param category_type: 1=菜品分类 2=套餐分类；不用 `type` 做参数名，
+        是为了不遮蔽 Python 内置的 type()
+    """
+    params = {"page": page, "pageSize": page_size}
+    if name is not None:
+        params["name"] = name
+    if category_type is not None:
+        params["type"] = category_type
+    return rc.request("GET", "/admin/category/page", params=params)
+

@@ -9,7 +9,8 @@
 ![requests](https://img.shields.io/badge/requests-2.32.3-orange)
 ![allure](https://img.shields.io/badge/allure-2.13.5-red)
 
-当前状态：**20 条用例，17 passed / 3 xfailed**（3 条 xfail 为已确认缺陷，见下方「实测发现的缺陷」）。
+当前状态：**23 条用例**，覆盖登录鉴权 / 越权安全 / 入参校验 / DB 双层校验 / 接口串联 / 下单链路 / 分类管理等 9 个模块。
+其中 3 条为已确认缺陷的 `xfail` 回归门禁（最近一次全量执行 2026-09-09：20 passed / 3 xfailed），缺陷详情见下方「实测发现的缺陷」。
 
 ---
 
@@ -18,10 +19,15 @@
 ```
 api_auto_test/
 ├── api/                  # 接口定义层：只描述"接口长什么样"，不含断言
-│   └── login_api.py
+│   ├── login_api.py      #   登录（管理端 / 用户端）
+│   ├── employee_api.py   #   员工新增 / 查询 / 删除
+│   ├── category_api.py   #   分类增删改查 + 清理
+│   ├── shopping_api.py   #   分类 / 菜品 / 购物车
+│   └── order_api.py      #   用户端下单 + 管理端履约
 ├── common/               # 通用能力层
-│   ├── request_client.py #   requests.Session 封装：URL 拼接 / 超时 / 日志
-│   ├── assert_util.py    #   断言工具：equals / code_ok / not_empty / match ...
+│   ├── request_client.py #   requests.Session 封装：URL 拼接 / 超时 / 日志 / 变量渲染
+│   ├── context.py        #   用例间变量池：jsonpath 提取 + ${} 渲染
+│   ├── assert_util.py    #   断言工具：equals / code_ok / contains / match ...
 │   ├── token_util.py     #   用户端 JWT 自签
 │   ├── yaml_util.py      #   yaml 读取（已处理 Windows 编码）
 │   ├── db_client.py      #   数据库访问封装（with 语句管理连接，防泄漏）
@@ -31,10 +37,14 @@ api_auto_test/
 │   ├── login_cases.yaml
 │   └── dish_cases.yaml
 ├── testcase/             # 用例层：只写业务语义
-│   ├── test_login.py
-│   ├── test_overage.py
-│   └── test_dish_db.py   #   DB 双层校验（接口响应 vs 数据库对账）
-├── conftest.py           # fixture：admin_client / user_client / user_token / db
+│   ├── test_login.py     #   登录鉴权 + 数据驱动
+│   ├── test_overage.py   #   越权安全 + 入参校验
+│   ├── test_dish_db.py   #   DB 双层校验（接口响应 vs 数据库对账）
+│   ├── test_employee_db.py
+│   ├── test_cart_chain.py  # 接口串联（分类 → 菜品 → 购物车）
+│   ├── test_order_flow.py  # 下单业务链路（跨端 token）
+│   └── test_category.py    # 分类管理 + 删除业务规则
+├── conftest.py           # fixture：admin_client / user_client / db / created_* / submitted_order
 ├── config.example.yaml   # 配置模板（脱敏，入库）
 ├── config.yaml           # 真实配置（含密钥，不入库）
 └── pytest.ini
@@ -165,7 +175,7 @@ add_to_cart(user_client, "${dish_id}")
 
 ---
 
-## 用例清单（20 条）
+## 用例清单（23 条）
 
 | 模块 | 用例 | 说明 | 结果 |
 |---|---|---|---|
@@ -185,6 +195,8 @@ add_to_cart(user_client, "${dish_id}")
 | 下单链路 | `test_order_full_lifecycle` | 跨端履约：用户下单 → 接单 → 派送 → 完成，每步查库对账 | passed |
 | 下单链路 | `test_order_submit_written_to_db` | 多表联动：`orders` + `order_detail` 落库，购物车被清空 | passed |
 | 下单链路 | `test_order_cancel_by_user` | 逆向流程：用户端取消，状态转已取消(6) | passed |
+| 分类管理 | `test_category_created_in_db` | 新增分类后直查库：字段一致 + 默认 `status=0`（禁用） | passed |
+| 分类管理 | `test_delete_related_category_should_be_rejected` × 2 | 分类下挂菜品(11) / 套餐(13) 时删除被拒绝，且库里数据不能少 | passed |
 
 ---
 
@@ -238,9 +250,9 @@ add_to_cart(user_client, "${dish_id}")
 诚实说明这个框架**现在做不到**什么：
 
 - **未接入 CI**。被测后端跑在本机 `localhost:8080`，云端没有这个服务，`base_url` 打空。要真接 CI 得先用 docker-compose 把被测系统 + MySQL + Redis 一起起起来。
-- **写后落库目前只覆盖"管理端新增员工"**。下单业务链路（`orders` / `order_detail` 多表联动 + 跨端 token 切换）尚未覆盖，其脏数据清理也更复杂。
+- **下单链路的支付环节无法端到端复现**。`/user/order/payment` 依赖微信支付回调，本地没有商户配置，必然调不通。用例的做法是用一条 SQL 把订单状态从「待付款(1)」推进到「待接单(2)」，其余环节（下单 → 接单 → 派送 → 完成 → 取消）全部接口驱动。因此**支付本身的正确性不在本框架覆盖范围内**。
 - **数据隔离用"唯一标记 + 造删对称"，不是独立测试库**。写用例与业务库同库，靠 fixture 按主键精确清理兜底。更彻底的方案是独立测试库，本项目无独立环境——这是已知的工程权衡，不是疏漏。
-- **未做接口依赖串联**。目前用例彼此独立，没有"下单 → 查订单"这类业务链路。
+- **接口覆盖 20 / 61 个**。取的是能撑起设计讲述的场景（鉴权、越权、写后落库、接口串联、业务链路）；未覆盖的有报表导出（二进制流）、文件上传（依赖阿里云 OSS）和支付回调，这三类在本地环境跑不通或价值偏低。
 - **环境依赖本地服务**，换机器要改 `config.yaml`。
 
 ---
