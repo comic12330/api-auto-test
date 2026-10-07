@@ -106,6 +106,28 @@ def edit_category_by_id(rc, payload):
     return rc.request("PUT", "/admin/category", json=payload)
 
 
+def set_category_status(rc, category_id, status):
+    """POST /admin/category/status/{status}?id=xx —— 启用(1) / 禁用(0) 分类。
+
+    两个必须知道的地方（均来自 Controller 源码，别凭直觉写）：
+
+    1. **`id` 是查询参数，不是路径参数。** 方法签名是
+       `startOrStop(@PathVariable Integer status, Long id)` —— 只有 status 带
+       `@PathVariable`，`id` 裸着没有任何注解。Spring 对无注解的简单类型参数
+       默认按**请求参数**绑定，所以只能写成 `?id=xx`；
+       写成 `/status/{status}/{id}` 会 404。
+
+    2. **它和「修改分类」共用同一个 Mapper 方法** `categoryMapper.update()`，
+       而那条 SQL 是 `<set>` + `<if test="x != null">` 的动态更新。
+       这里只 set 了 status 和 id → **只会更新 status 一列**，
+       name / type / sort 不受影响。这正好是一条值得断言的安全边界。
+
+    :param status: 1=启用，0=禁用（StatusConstant）
+    """
+    return rc.request("POST", f"/admin/category/status/{status}",
+                      params={"id": category_id})
+
+
 def get_category_page(rc, page, page_size, name=None, category_type=None):
     """GET /admin/category/page —— 分页查询分类，返回响应对象。
 

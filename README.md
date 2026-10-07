@@ -18,7 +18,7 @@ api_auto_test/
 ├── api/                  # 接口定义层：只描述"接口长什么样"，不含断言
 │   ├── login_api.py      #   登录（管理端 / 用户端）
 │   ├── employee_api.py   #   员工新增 / 查询 / 删除
-│   ├── category_api.py   #   分类增删改查 + 清理
+│   ├── category_api.py   #   分类增删改查 + 启停用 + 清理
 │   ├── shopping_api.py   #   分类 / 菜品 / 购物车
 │   └── order_api.py      #   用户端下单 + 管理端履约
 ├── common/               # 通用能力层
@@ -40,7 +40,7 @@ api_auto_test/
 │   ├── test_employee_db.py
 │   ├── test_cart_chain.py  # 接口串联（分类 → 菜品 → 购物车）
 │   ├── test_order_flow.py  # 下单业务链路（跨端 token）
-│   └── test_category.py    # 分类管理 + 删除业务规则
+│   └── test_category.py    # 分类管理 + 分页 / 修改 / 启停用 / 删除业务规则
 ├── conftest.py           # fixture：admin_client / user_client / db / created_* / submitted_order
 ├── config.example.yaml   # 配置模板（脱敏，入库）
 ├── config.yaml           # 真实配置（含密钥，不入库）
@@ -164,7 +164,9 @@ add_to_cart(user_client, "${dish_id}")
 
 ---
 
-## 用例清单（23 条）
+## 用例清单（27 条）
+
+当前状态：**23 passed + 4 xfailed，零 failed**。4 条 `xfail` 对应 4 个已知缺陷的回归门禁——缺陷修复后用例自动 XPASS，`xfail_strict = true` 会让流水线变红，提醒清理标记转回普通用例。
 
 | 模块 | 用例 | 说明 | 结果 |
 |---|---|---|---|
@@ -186,6 +188,10 @@ add_to_cart(user_client, "${dish_id}")
 | 下单链路 | `test_order_cancel_by_user` | 逆向流程：用户端取消，状态转已取消(6) | passed |
 | 分类管理 | `test_category_created_in_db` | 新增分类后直查库：字段一致 + 默认 `status=0`（禁用） | passed |
 | 分类管理 | `test_delete_related_category_should_be_rejected` × 2 | 分类下挂菜品(11) / 套餐(13) 时删除被拒绝，且库里数据不能少 | passed |
+| 分类管理 | `test_category_page_filter_and_paging` | 分页：`name` 过滤真的在过滤 + `pageSize` 真的在切页 + `total` 不随 pageSize 变化 | passed |
+| 分类管理 | `test_category_page_no_duplicate_or_missing` | 分页不变量：翻完所有页拼起来不重不漏，且与 DB 全量一致 | **xfailed** |
+| 分类管理 | `test_edit_category_only_updates_given_fields` | 只改 `name` 时 `type` / `sort` / `status` 不被连带清空（部分更新契约） | passed |
+| 分类管理 | `test_category_status_toggle_affects_user_visibility` | 启停用只改 `status`；启用后在用户端列表可见、禁用后消失 | passed |
 
 ---
 
@@ -198,6 +204,7 @@ add_to_cart(user_client, "${dish_id}")
 | `/admin/employee/login` | 空用户名 + 默认密码可登录管理后台 | 鉴权绕过 |
 | `/user/dish/list` | 缺失必填参数 `categoryId` 时返回 500，应返回 400 | 入参校验缺失 |
 | `/admin/employee` | `id_number` 无唯一约束与格式校验，可重复落库 | 数据完整性 |
+| `/admin/category/page` | 分类 `sort` 值相同时排序不固定，翻页会重复返回同一条记录、并漏掉另一条 | 分页不稳定 |
 
 这批用例同时是"发现过缺陷"的可展示证据：开发修复后用例转为 `XPASS`，`strict=True` 会让流水线变红，提醒清理标记。
 
