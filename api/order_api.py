@@ -130,8 +130,14 @@ def delete_order_by_id(db, order_id):
     为什么要直接删库：订单**没有删除接口**，`cancel` 只是把状态改成 6，
     记录还在表里。要让用例可重复执行，只能直连 DB 删。
 
-    ⚠️ 必须先删明细再删主表：`order_detail.order_id` 有外键指向 `orders`，
-    顺序反了会报外键约束错误。这个顺序本身就是个考点。
+    ⚠️ 删除顺序「先明细后主表」—— 但**不是因为有外键**。
+    实测本库 `information_schema.KEY_COLUMN_USAGE` 里 **外键约束总数为 0**：
+    `order_detail` 与 `orders` 都只有主键，没有 FOREIGN KEY。
+    所以顺序反了**不会报错**。按"先子后父"删只是逻辑更清晰、
+    也为将来加外键留余量。
+    反证：库里现存 **2878 条孤儿明细**（`order_id` 指向已不存在的订单）——
+    真有外键的话，这些孤儿根本不可能存在。
+    （此处早前写"有外键、顺序反了会报错"，与库实况不符，已修正。）
     """
     db.execute("DELETE FROM order_detail WHERE order_id=%s", (order_id,))
     return db.execute("DELETE FROM orders WHERE id=%s", (order_id,))
