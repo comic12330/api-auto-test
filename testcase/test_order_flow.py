@@ -30,7 +30,9 @@ def test_order_full_lifecycle(submitted_order, admin_client, user_client, db):
     """完整状态流转：2 待接单 → 3 已接单 → 4 派送中 → 5 已完成。"""
     order_id = submitted_order
 
-    # 起点必须是「待接单」，否则后面的接单会失败（后端有硬校验）
+    # 起点断言：链路必须从「待接单(2)」出发，后面 3→4→5 才成立。
+    # ⚠️ 不是 confirm 要求的 —— confirm 无任何状态校验（见 README 缺陷表⑤）。
+    # 断言起点是为了保证后续推进处在合法的业务链路上，而不是因为接口会拒绝。
     AssertUtil.equals(select_order_by_id(db, order_id)["status"], 2,
                       "链路起点应为待接单(2)")
 
