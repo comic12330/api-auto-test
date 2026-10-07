@@ -204,14 +204,17 @@ add_to_cart(user_client, "${dish_id}")
 
 ## 缺陷检出
 
-框架在联调过程中检出以下真实缺陷，并以 `xfail` 用例固化为回归门禁：
+框架在联调过程中检出以下真实缺陷。前 4 条已用 `xfail` 用例固化为回归门禁，后 3 条待补门禁：
 
-| 接口 | 问题 | 类型 |
-|---|---|---|
-| `/admin/employee/login` | 空用户名 + 默认密码可登录管理后台 | 鉴权绕过 |
-| `/user/dish/list` | 缺失必填参数 `categoryId` 时返回 500，应返回 400 | 入参校验缺失 |
-| `/admin/employee` | `id_number` 无唯一约束与格式校验，可重复落库 | 数据完整性 |
-| `/admin/category/page` | 分类 `sort` 值相同时排序不固定，翻页会重复返回同一条记录、并漏掉另一条 | 分页不稳定 |
+| 接口 | 问题 | 类型 | 门禁 |
+|---|---|---|---|
+| `/admin/employee/login` | 空用户名 + 默认密码可登录管理后台 | 鉴权绕过 | xfail |
+| `/user/dish/list` | 缺失必填参数 `categoryId` 时返回 500，应返回 400 | 入参校验缺失 | xfail |
+| `/admin/employee` | `id_number` 无唯一约束与格式校验，可重复落库 | 数据完整性 | xfail |
+| `/admin/category/page` | 分类 `sort` 值相同时排序不固定，翻页会重复返回同一条记录、并漏掉另一条 | 分页不稳定 | xfail |
+| `/admin/order/confirm` | 接单接口无任何状态校验：已取消 / 已完成 / 甚至不存在的订单都能被"接单"成已接单(3)；`status` 字段为死参数 | 状态机校验缺失 | 待补 |
+| `/user/order/orderDetail/{id}` | 订单详情不校验归属，任意用户 token 可读任意订单（`historyOrders` 有 `userId` 过滤，详情接口没有） | 越权访问 | 待补 |
+| `/user/order/cancel/{id}` | 订单 id 不存在时返回 500（`getById` 返回 null 后直接取 `getStatus()`），应返回 404 / 业务错误码 | 空值处理缺失 | 待补 |
 
 这批用例同时是"发现过缺陷"的可展示证据：开发修复后用例转为 `XPASS`，`strict=True` 会让流水线变红，提醒清理标记。
 

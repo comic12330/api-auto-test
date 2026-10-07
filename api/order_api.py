@@ -12,10 +12,15 @@
 状态常量（源码 `sky-pojo/.../entity/Orders.java`，别背错）：
     1 待付款 | 2 待接单 | 3 已接单 | 4 派送中 | 5 已完成 | 6 已取消
 
-⚠️ 关键约束：`confirm()` 在 `OrderServiceImpl` 里有硬校验
-**`status` 必须等于 2（待接单）才允许接单**，否则抛异常。
-所以从"待付款"到"待接单"必须走一步 —— 走不通就得用 DB 推进，
-这一点在 `conftest.submitted_order` 里写清楚了。
+⚠️ 状态校验的真实分布（读源码 + 实测，别想当然）：
+`delivery` / `complete` / `rejection` 三个方法都有硬校验，状态不对会抛
+`OrderBusinessException("订单状态错误")`；
+但 **`confirm`（接单）一个校验都没有** —— 它直接 `update` 把 status 写成 3，
+已取消、已完成、甚至不存在的 id 都照收不误（见 README 缺陷⑤）。
+
+从"待付款"到"待接单"这一段，`payment` 在本地跑不通（调真实微信支付），
+所以 `conftest.submitted_order` 用一行 DB SQL 推过去 —— 那是**环境妥协**，
+不是被 `confirm` 的校验逼的。
 """
 from datetime import datetime, timedelta
 
@@ -69,8 +74,14 @@ def get_user_order_detail(rc, order_id, **kw):
 def confirm_order(rc, order_id, **kw):
     """PUT /admin/order/confirm 接单。
 
-    请求体是 `{id, status}`，不是只传 id —— 这个 DTO 有个 status 字段，
-    传错或漏传会导致接单失败。
+    ⚠️ 两个反直觉的事实（读源码 + 实测确认）：
+      ① 请求体里的 `status` 是**死参数** —— Service 内部直接
+         `Orders.builder().id(...).status(CONFIRMED)`，压根不读 DTO 的 status，
+         传 99 也照样写成 3。
+      ② 这个方法**没有任何状态校验**（对比 delivery / complete 都有）：
+         已取消(6) / 已完成(5) 的订单都能被重新"接单"成 3，
+         不存在的 id 也返回 code=1（见 README 缺陷⑤）。
+    请求体仍按接口定义传 `{id, status}`，与后端 DTO 形状保持一致。
     """
     return rc.request("PUT", "/admin/order/confirm", json={
         "id": order_id,
