@@ -171,9 +171,9 @@ add_to_cart(user_client, "${dish_id}")
 
 ---
 
-## 用例清单（28 条）
+## 用例清单（29 条）
 
-当前状态：**23 passed + 5 xfailed，零 failed**。5 条 `xfail` 对应 5 个已知缺陷的回归门禁——缺陷修复后用例自动 XPASS，`xfail_strict = true` 会让流水线变红，提醒清理标记转回普通用例。
+当前状态：**23 passed + 6 xfailed，零 failed**。6 条 `xfail` 对应 6 个已知缺陷的回归门禁——缺陷修复后用例自动 XPASS，`xfail_strict = true` 会让流水线变红，提醒清理标记转回普通用例。
 
 | 模块 | 用例 | 说明 | 结果 |
 |---|---|---|---|
@@ -193,6 +193,7 @@ add_to_cart(user_client, "${dish_id}")
 | 下单链路 | `test_order_full_lifecycle` | 跨端履约：用户下单 → 接单 → 派送 → 完成，每步接口 + 查库对账；收尾逐字段核对用户端详情与库一致 | passed |
 | 下单链路 | `test_order_submit_written_to_db` | 多表联动：`orders` + `order_detail` 落库，购物车被清空 | passed |
 | 下单链路 | `test_order_cancel_by_user` | 逆向流程：用户端取消，状态转已取消(6) | passed |
+| 状态机 | `test_confirm_should_reject_invalid_status` | 接单应校验状态：已取消(6) 的订单不应被重新接单 | **xfailed** |
 | 越权安全 | `test_order_detail_should_reject_other_user` | 订单详情校验数据归属：另一用户 token 读他人订单应被拒绝 | **xfailed** |
 | 分类管理 | `test_category_created_in_db` | 新增分类后直查库：字段一致 + 默认 `status=0`（禁用） | passed |
 | 分类管理 | `test_delete_related_category_should_be_rejected` × 2 | 分类下挂菜品(11) / 套餐(13) 时删除被拒绝，且库里数据不能少 | passed |
@@ -205,7 +206,7 @@ add_to_cart(user_client, "${dish_id}")
 
 ## 缺陷检出
 
-框架在联调过程中检出以下真实缺陷。前 5 条已用 `xfail` 用例固化为回归门禁，后 4 条待补门禁：
+框架在联调过程中检出以下真实缺陷。前 6 条已用 `xfail` 用例固化为回归门禁，后 3 条待补门禁：
 
 | 接口 | 问题 | 类型 | 门禁 |
 |---|---|---|---|
@@ -213,7 +214,7 @@ add_to_cart(user_client, "${dish_id}")
 | `/user/dish/list` | 缺失必填参数 `categoryId` 时返回 500，应返回 400 | 入参校验缺失 | xfail |
 | `/admin/employee` | `id_number` 无唯一约束与格式校验，可重复落库 | 数据完整性 | xfail |
 | `/admin/category/page` | 分类 `sort` 值相同时排序不固定，翻页会重复返回同一条记录、并漏掉另一条 | 分页不稳定 | xfail |
-| `/admin/order/confirm` | 接单接口无任何状态校验：已取消 / 已完成 / 甚至不存在的订单都能被"接单"成已接单(3)；`status` 字段为死参数 | 状态机校验缺失 | 待补 |
+| `/admin/order/confirm` | 接单接口无任何状态校验：已取消 / 已完成 / 甚至不存在的订单都能被"接单"成已接单(3)；`status` 字段为死参数 | 状态机校验缺失 | xfail |
 | `/user/order/orderDetail/{id}` | 订单详情不校验归属，任意用户 token 可读任意订单（`historyOrders` 有 `userId` 过滤，详情接口没有） | 越权访问 | xfail |
 | `/user/order/cancel/{id}` | 订单 id 不存在时返回 500（`getById` 返回 null 后直接取 `getStatus()`），应返回 404 / 业务错误码 | 空值处理缺失 | 待补 |
 | `/admin/order/cancel` | 管理端取消同样无状态校验：已完成(5) / 已取消(6) / 不存在的订单都能被改成已取消(6)。与 `/admin/order/confirm` 属同一类缺失——该系统订单状态机仅 `delivery` / `complete` / `rejection` 三个动作有校验 | 状态机校验缺失 | 待补 |

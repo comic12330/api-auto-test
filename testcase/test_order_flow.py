@@ -132,3 +132,48 @@ def test_order_cancel_by_user(submitted_order, user_client, db):
                        "用户端取消订单")
     AssertUtil.equals(select_order_by_id(db, submitted_order)["status"], 6,
                       "取消后 DB 状态应为已取消(6)")
+
+
+@allure.feature("下单业务链路")
+@allure.story("状态机校验")
+@allure.title("接单应校验状态：已取消的订单不应被重新接单")
+@pytest.mark.xfail(strict=True,
+                   reason="缺陷⑤：/admin/order/confirm 无任何状态校验（见 README 缺陷表）")
+def test_confirm_should_reject_invalid_status(submitted_order, admin_client, user_client, db):
+    """状态机完整性门禁 —— `confirm` 是该系统订单动作里**唯一没有校验**的那个。
+
+    读源码（`OrderServiceImpl`）可以看到校验的真实分布：
+
+        delivery   → if (status != 3) throw OrderBusinessException
+        complete   → if (status != 4) throw OrderBusinessException
+        rejection  → if (status != 2) throw OrderBusinessException
+        confirm    → 无任何判断，直接 update 把 status 写成 3
+
+    探针场景选「已取消(6)」：一张已经取消掉的订单，被管理端重新"接单"成
+    已接单(3) —— 业务上这绝不该发生（用户已经放弃的订单会被重新派单）。
+
+    ⚠️ 前置用**真实接口** `cancel_order` 把状态推到 6，而不是直接改库 ——
+    要验的是"接口允许非法状态转移"，起点就必须是接口产生的合法状态，
+    否则测到的只是"我手工给了个脏状态，接口没拦住"。
+
+    缺陷修复后这条会 XPASS，`xfail_strict=true` 让流水线变红提醒清理标记。
+
+    同源的另外两个场景实测同样成立，不在本用例重复（一条用例只留一个断点，
+    否则第一个断言失败后面的根本不会执行）：
+      - 已完成(5) 的订单同样能被"接单"回 3；
+      - **不存在的 id** 也返回 code=1（update 影响 0 行，但接口层没接返回值）。
+    """
+    # 前置：走真实接口取消订单（2 待接单 → 6 已取消）
+    AssertUtil.code_ok(cancel_order(user_client, submitted_order).json(), 1,
+                       "前置：用户端取消订单")
+    AssertUtil.equals(select_order_by_id(db, submitted_order)["status"], 6,
+                      "前置条件：取消后应为已取消(6)")
+
+    # 管理端"接单" —— 正确行为是被拒绝
+    body = confirm_order(admin_client, submitted_order).json()
+    after = select_order_by_id(db, submitted_order)["status"]
+
+    assert body.get("code") != 1, (
+        f"缺陷⑤：已取消(6)的订单被重新接单 —— 接口返回 code={body.get('code')}，"
+        f"DB 状态 6 → {after}（应被拒绝且保持 6）"
+    )
