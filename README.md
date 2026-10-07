@@ -171,9 +171,9 @@ add_to_cart(user_client, "${dish_id}")
 
 ---
 
-## 用例清单（27 条）
+## 用例清单（28 条）
 
-当前状态：**23 passed + 4 xfailed，零 failed**。4 条 `xfail` 对应 4 个已知缺陷的回归门禁——缺陷修复后用例自动 XPASS，`xfail_strict = true` 会让流水线变红，提醒清理标记转回普通用例。
+当前状态：**23 passed + 5 xfailed，零 failed**。5 条 `xfail` 对应 5 个已知缺陷的回归门禁——缺陷修复后用例自动 XPASS，`xfail_strict = true` 会让流水线变红，提醒清理标记转回普通用例。
 
 | 模块 | 用例 | 说明 | 结果 |
 |---|---|---|---|
@@ -190,9 +190,10 @@ add_to_cart(user_client, "${dish_id}")
 | 接口串联 | `test_cart_add_by_chain` | 分类 → 菜品 → 购物车三步串联，每步输入来自上一步输出 | passed |
 | 接口串联 | `test_cart_add_written_to_db` | 串联 + DB 双层校验：加购物车后查 `shopping_cart` 表 | passed |
 | 接口串联 | `test_context_is_empty_at_start` | 每个用例开始时变量池必须为空（防用例间串味的守卫用例） | passed |
-| 下单链路 | `test_order_full_lifecycle` | 跨端履约：用户下单 → 接单 → 派送 → 完成，每步查库对账 | passed |
+| 下单链路 | `test_order_full_lifecycle` | 跨端履约：用户下单 → 接单 → 派送 → 完成，每步接口 + 查库对账；收尾逐字段核对用户端详情与库一致 | passed |
 | 下单链路 | `test_order_submit_written_to_db` | 多表联动：`orders` + `order_detail` 落库，购物车被清空 | passed |
 | 下单链路 | `test_order_cancel_by_user` | 逆向流程：用户端取消，状态转已取消(6) | passed |
+| 越权安全 | `test_order_detail_should_reject_other_user` | 订单详情校验数据归属：另一用户 token 读他人订单应被拒绝 | **xfailed** |
 | 分类管理 | `test_category_created_in_db` | 新增分类后直查库：字段一致 + 默认 `status=0`（禁用） | passed |
 | 分类管理 | `test_delete_related_category_should_be_rejected` × 2 | 分类下挂菜品(11) / 套餐(13) 时删除被拒绝，且库里数据不能少 | passed |
 | 分类管理 | `test_category_page_filter_and_paging` | 分页：`name` 过滤真的在过滤 + `pageSize` 真的在切页 + `total` 不随 pageSize 变化 | passed |
@@ -204,7 +205,7 @@ add_to_cart(user_client, "${dish_id}")
 
 ## 缺陷检出
 
-框架在联调过程中检出以下真实缺陷。前 4 条已用 `xfail` 用例固化为回归门禁，后 5 条待补门禁：
+框架在联调过程中检出以下真实缺陷。前 5 条已用 `xfail` 用例固化为回归门禁，后 4 条待补门禁：
 
 | 接口 | 问题 | 类型 | 门禁 |
 |---|---|---|---|
@@ -213,7 +214,7 @@ add_to_cart(user_client, "${dish_id}")
 | `/admin/employee` | `id_number` 无唯一约束与格式校验，可重复落库 | 数据完整性 | xfail |
 | `/admin/category/page` | 分类 `sort` 值相同时排序不固定，翻页会重复返回同一条记录、并漏掉另一条 | 分页不稳定 | xfail |
 | `/admin/order/confirm` | 接单接口无任何状态校验：已取消 / 已完成 / 甚至不存在的订单都能被"接单"成已接单(3)；`status` 字段为死参数 | 状态机校验缺失 | 待补 |
-| `/user/order/orderDetail/{id}` | 订单详情不校验归属，任意用户 token 可读任意订单（`historyOrders` 有 `userId` 过滤，详情接口没有） | 越权访问 | 待补 |
+| `/user/order/orderDetail/{id}` | 订单详情不校验归属，任意用户 token 可读任意订单（`historyOrders` 有 `userId` 过滤，详情接口没有） | 越权访问 | xfail |
 | `/user/order/cancel/{id}` | 订单 id 不存在时返回 500（`getById` 返回 null 后直接取 `getStatus()`），应返回 404 / 业务错误码 | 空值处理缺失 | 待补 |
 | `/admin/order/cancel` | 管理端取消同样无状态校验：已完成(5) / 已取消(6) / 不存在的订单都能被改成已取消(6)。与 `/admin/order/confirm` 属同一类缺失——该系统订单状态机仅 `delivery` / `complete` / `rejection` 三个动作有校验 | 状态机校验缺失 | 待补 |
 | `order_detail` 表结构 | `order_id` 无外键约束，订单删除后明细可残留（实测孤儿明细 2878 条），数据库层无任何保护 | 数据完整性 | 待补 |

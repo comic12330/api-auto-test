@@ -8,7 +8,10 @@
 接口返回 `code=1` 只能说明"接口没报错"，
 状态到底推进到哪一步，只有查库才知道。
 """
+from decimal import Decimal
+
 import allure
+import pytest
 
 from api.order_api import (
     cancel_order,
@@ -51,9 +54,53 @@ def test_order_full_lifecycle(submitted_order, admin_client, user_client, db):
     AssertUtil.equals(select_order_by_id(db, order_id)["status"], 5,
                       "完成后 DB 状态应为已完成(5)")
 
-    # ④ 用户端能查到这张订单（跨端数据一致）
+    # ④ 用户端能查到这张订单 —— 这里要验的是**跨端数据一致**，
+    #    所以必须逐字段与库对账，不能只断 `code=1`。
+    #    （只断 code 是「空断言」：接口只要返回成功就绿，一个字段都没验到，
+    #      连"返回的是不是这张订单"都不知道。原先注释写"跨端数据一致"，
+    #      与断言强度不符，已按事实修正。）
     body = get_user_order_detail(user_client, order_id).json()
     AssertUtil.code_ok(body, 1, "用户端查询订单详情")
+
+    detail = body["data"]
+    order_row = select_order_by_id(db, order_id)
+    AssertUtil.equals(detail["id"], order_id, "用户端详情应返回该订单")
+    AssertUtil.equals(detail["number"], order_row["number"], "订单编号应与库一致")
+    AssertUtil.equals(detail["status"], order_row["status"], "订单状态应与库一致")
+    AssertUtil.equals(Decimal(str(detail["amount"])), Decimal(str(order_row["amount"])),
+                      "订单金额应与库一致")
+    # 明细也要对得上：id 集合必须与库完全一致，不能只看条数
+    AssertUtil.equals(
+        sorted(d["id"] for d in detail["orderDetailList"]),
+        sorted(d["id"] for d in select_order_details(db, order_id)),
+        "订单明细应与库完全一致",
+    )
+
+
+@allure.feature("下单业务链路")
+@allure.story("越权（数据归属）")
+@allure.title("用户端订单详情应校验归属：拿别人的 token 不应读到这张订单")
+@pytest.mark.xfail(strict=True,
+                   reason="缺陷⑥：orderDetail 不校验数据归属，任意 user token 可读任意订单（见 README 缺陷表）")
+def test_order_detail_should_reject_other_user(submitted_order, stranger_client, db):
+    """越权门禁：用**另一个用户**的身份去读这张订单，应当被拒绝。
+
+    对照 `historyOrders`：它把 `userId` 塞进了查询条件
+    （`BaseContext.getCurrentId()`），列表天然只能看到自己的；
+    而 `orderDetail(id)` 只按 id 查，没有任何归属校验 ——
+    JWT 拦截器只保证"这个 token 合法"，不保证"这张订单属于他"。
+
+    缺陷修复后这条会 XPASS，`xfail_strict=true` 让流水线变红提醒清理标记。
+    """
+    owner_id = select_order_by_id(db, submitted_order)["user_id"]
+
+    body = get_user_order_detail(stranger_client, submitted_order).json()
+    data = body.get("data") or {}
+
+    assert data.get("id") != submitted_order, (
+        f"越权成功：订单 {submitted_order}（归属 userId={owner_id}）"
+        f"被另一个用户的 token 读到了，响应里 userId={data.get('userId')}"
+    )
 
 
 @allure.feature("下单业务链路")

@@ -35,6 +35,10 @@ from api.employee_api import (
     select_employee_by_username,
 )
 
+# 「路人」用户 id —— 越权用例专用。取一个库里不存在的值，
+# 与配置里的默认用户（4）区分开，确保它不可能是订单的归属人。
+STRANGER_USER_ID = 9999
+
 
 @pytest.fixture(scope="session")
 def db():
@@ -86,6 +90,24 @@ def user_client(user_token):
     base_url = cnf["base_url"]
     rc = RequestClient(base_url)
     rc.session.headers[cnf["auth"]["user_token_header"]] = user_token
+    return rc
+
+
+@pytest.fixture(scope="session")
+def stranger_client():
+    """「另一个用户」的 client —— 专供越权（IDOR）用例：拿别人的身份去读不属于他的数据。
+
+    为什么能造出来：后端 JWT 拦截器（`/user/**`）只校验**签名合法性**，
+    不查库、也不校验"这个 userId 是不是订单的归属人"。所以这里签一个
+    库里不存在的 userId（默认用户是 4），token 一样能通过鉴权 ——
+    这恰好是验证"接口有没有做数据归属校验"的探针。
+
+    ⚠️ 注意它和 `user_client` 的区别：`user_client` 是**数据的主人**，
+    `stranger_client` 是**路人**。两者对比才能测出归属校验缺失。
+    """
+    cnf = load_config()
+    rc = RequestClient(cnf["base_url"])
+    rc.session.headers[cnf["auth"]["user_token_header"]] = gen_user_token(STRANGER_USER_ID)
     return rc
 
 
