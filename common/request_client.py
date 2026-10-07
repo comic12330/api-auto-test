@@ -2,15 +2,17 @@ import requests
 
 from common.context import TestContext, extract_by_jsonpath
 from common.logger import get_logger
+from common.report_util import attach_response
 
 
 class RequestClient:
     """
     统一请求封装，管理base_url,headers
 
-    除发请求外，还承担接口串联的两件事（见 common/context.py）：
+    除发请求外，还承担三件事（串联逻辑见 common/context.py）：
       - 渲染：path / params / json / data 里的 ${var} 自动替换成变量池里的值
       - 提取：extract={"变量名": "jsonpath 表达式"} → 从响应里取值存入变量池
+      - 证据：每个请求的响应原文自动 attach 进 Allure 报告（见 common/report_util.py）
     """
 
     def __init__(self, base_url, headers=None):
@@ -42,6 +44,11 @@ class RequestClient:
         self.logger.info(f"【发送请求】：{method}，{path}")
         resp = self.session.request(method, url, **kwargs)
         self.logger.info(f"【接收响应】HTTP {resp.status_code} | 耗时 {resp.elapsed.total_seconds():.2f}s")
+
+        # 报文证据在这里统一下发，不靠用例"记得写"。
+        # 之前 attach_response 只在 4/7 个用例文件里被手动调用，最需要证据的
+        # 下单链路反而没有 —— 能力只接了一半。放到请求出口就 100% 覆盖。
+        attach_response(resp, name=f"{method} {path}")
 
         if extract:
             self._extract(resp, extract)

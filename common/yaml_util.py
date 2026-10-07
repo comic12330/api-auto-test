@@ -30,6 +30,3 @@ def load_yaml_data(relative_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def get_data_file_abs(relative_path: str) -> str:
-    """返回 data 目录下文件的绝对路径（给 pytest 读入参用）。"""
-    return os.path.join(PROJECT_ROOT, "data", relative_path)

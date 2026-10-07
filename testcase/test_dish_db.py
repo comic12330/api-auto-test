@@ -15,8 +15,8 @@
 import allure
 import pytest
 
+from api.shopping_api import list_dish
 from common.assert_util import AssertUtil
-from common.report_util import attach_response
 from common.yaml_util import load_yaml_data
 
 
@@ -36,9 +36,8 @@ def test_dish_list_matches_db(user_client, db, category_id, expect_count):
     allure.dynamic.title(f"双层校验 - 分类{category_id}的菜品，接口返回与 DB 一致")
 
     # ---------- 第一层：走 HTTP 接口 ----------
-    resp = user_client.request("GET", "/user/dish/list", params={"categoryId": category_id})
+    resp = list_dish(user_client, category_id)
     body = resp.json()
-    attach_response(resp)
     AssertUtil.code_ok(body, 1, "菜品列表业务码")
     api_dishes = body.get("data") or []
 

@@ -58,6 +58,25 @@ def add_employee(rc, payload):
     return rc.request("POST", "/admin/employee", json=payload)
 
 
+def list_employee_page(rc, page=1, page_size=10, name=None, **kw):
+    """GET /admin/employee/page —— 员工分页查询。
+
+    参数名必须跟后端 `EmployeePageQueryDTO` 字段**逐字一致**（已读源码确认）：
+    `name` / `page` / `pageSize`。写成 `page_size` 这类名字，Spring 绑不上
+    且**不报错**，只会静默取默认值 —— 表现为"分页参数好像没生效"。
+
+    `name` 为 None 时不带该参数：requests 会跳过值为 None 的 param，
+    避免拼出 `name=` 空串，把"不过滤"变成"筛 name 为空"。
+
+    `**kw` 用于透传 `headers` 等参数 —— 越权用例需要"带着错误凭证发这个请求"，
+    有它就不必为了一个特例在用例里手写 URL、把分层撕开一个口子。
+    """
+    params = {"page": page, "pageSize": page_size}
+    if name is not None:
+        params["name"] = name
+    return rc.request("GET", "/admin/employee/page", params=params, **kw)
+
+
 def select_employee_by_username(db, username):
     """按 username 查一条员工记录；没查到返回 None。"""
     return db.query_one(

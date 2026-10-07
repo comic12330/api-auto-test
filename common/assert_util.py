@@ -11,9 +11,11 @@ class AssertUtil:
         assert actual == expected, f"{msg} | 实际={actual}, 期望={expected}"
 
     @staticmethod
-    def code_ok(body, expected =1, msg="业务码不正确"):
-        """业务码断言：该系统成功 code==1"""
-        assert body.get("code") == expected , f"{msg} | 期望code={expected }, 实际code={body.get('code')}, msg={body.get('msg')}"
+    def code_ok(body, expected=1, msg="业务码不正确"):
+        """业务码断言：该系统成功 code==1。失败时把后端 msg 一并带出来。"""
+        assert body.get("code") == expected, (
+            f"{msg} | 期望code={expected}, 实际code={body.get('code')}, msg={body.get('msg')}"
+        )
 
     @staticmethod
     def contains(text, sub, msg="不包含期望内容"):

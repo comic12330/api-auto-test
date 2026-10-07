@@ -16,19 +16,19 @@
 ```
 api_auto_test/
 ├── api/                  # 接口定义层：只描述"接口长什么样"，不含断言
-│   ├── login_api.py      #   登录（管理端 / 用户端）
-│   ├── employee_api.py   #   员工新增 / 查询 / 删除
+│   ├── login_api.py      #   管理端登录（用户端不走登录接口，见 token_util.py）
+│   ├── employee_api.py   #   员工新增 / 分页查询 / 查库 / 清理
 │   ├── category_api.py   #   分类增删改查 + 启停用 + 清理
-│   ├── shopping_api.py   #   分类 / 菜品 / 购物车
+│   ├── shopping_api.py   #   分类 / 菜品 / 购物车 / 收货地址
 │   └── order_api.py      #   用户端下单 + 管理端履约
 ├── common/               # 通用能力层
-│   ├── request_client.py #   requests.Session 封装：URL 拼接 / 超时 / 日志 / 变量渲染
+│   ├── request_client.py #   requests.Session 封装：URL 拼接 / 超时 / 日志 / 变量渲染 / 报文证据
 │   ├── context.py        #   用例间变量池：jsonpath 提取 + ${} 渲染
 │   ├── assert_util.py    #   断言工具：equals / code_ok / contains / match ...
 │   ├── token_util.py     #   用户端 JWT 自签
 │   ├── yaml_util.py      #   yaml 读取（已处理 Windows 编码）
 │   ├── db_client.py      #   数据库访问封装（with 语句管理连接，防泄漏）
-│   ├── report_util.py    #   Allure 响应体附件
+│   ├── report_util.py    #   Allure 响应体附件（由 request_client 统一调用）
 │   └── logger.py
 ├── data/                 # 数据层：测试数据外置
 │   ├── login_cases.yaml
@@ -161,6 +161,13 @@ add_to_cart(user_client, "${dish_id}")
 - **用 DB 把状态推进到「待接单」**：`submit` 之后订单是 1（待付款），而 `confirm` 在后端有硬校验——**status 必须 = 2 才给接单**。1 → 2 要走 `/user/order/payment`，而它调用真实微信支付，本地必然失败。这是环境妥协而非设计，且被严格限制在一行 SQL 之内，其后的接单 / 派送 / 完成全部由接口驱动；
 - **teardown 用 DB 删而非接口取消**：订单**没有删除接口**，`cancel` 只是把状态改成 6，记录还在。要可重复执行只能直连 DB 删，且**必须先删 `order_detail` 再删 `orders`**（外键约束，顺序反了直接报错）；
 - **依赖 `empty_cart`**：`submit` 会把购物车里的所有商品转成订单，购物车不干净则金额与明细数量不可控。
+
+**10. 分层收口：请求出口唯一，证据自动落地**
+
+分层不是文档里的口号，而是可以被机械验证的约束：
+
+- **测试层不出现任何裸 URL、不直接调用 `rc.request()`**。所有请求经 `api/` 层函数发出，接口改路径只动一处。越权用例需要"带错误凭证发同一个请求"这类特例，也通过 api 函数的 `**kw` 透传 `headers` 解决，不为一个特例把分层撕开一个口子；
+- **响应报文附件不靠用例手写**。早期 `attach_response()` 由用例自己记得调用，结果只覆盖 4/7 个用例文件——恰恰最需要证据的下单链路没有留痕。现在统一下发在 `RequestClient.request()` 的出口，覆盖率天然 100%，用例也不必再关心报告怎么留痕。
 
 ---
 

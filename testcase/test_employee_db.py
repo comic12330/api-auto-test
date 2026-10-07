@@ -19,7 +19,6 @@ from api.employee_api import (
     select_employee_by_username,
 )
 from common.assert_util import AssertUtil
-from common.report_util import attach_response
 
 # MD5("123456") —— 苍穹外卖新增员工的默认密码。后端在 EmployeeServiceImpl.save()
 # 里用 DigestUtils.md5DigestAsHex 加密后落库，所以库里不该出现明文
@@ -80,7 +79,6 @@ def test_id_number_duplicate_should_be_rejected(created_employee, admin_client, 
     # 用**完全相同**的身份证号、不同的 username 再新增一次
     dup_payload = build_employee_payload(id_number=first_payload["idNumber"])
     resp = add_employee(admin_client, dup_payload)
-    attach_response(resp)
     body = resp.json()
 
     dup_row = select_employee_by_username(db, dup_payload["username"])
