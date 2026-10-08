@@ -22,7 +22,7 @@ def build_login_cases():
     return params
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("登录鉴权")
 @allure.story("正向登录")
 @allure.title("管理员使用正确账号密码登录成功")
@@ -48,7 +48,7 @@ def test_login_success(admin_client):
                      token, "token 应为三段 base64url 组成的合法 JWT")
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("登录鉴权")
 @allure.story("异常凭证")
 @pytest.mark.parametrize("username,password,expected_code,expected_msg,desc", build_login_cases())
@@ -62,7 +62,7 @@ def test_login_invalid_credential(admin_client, username, password, expected_cod
         AssertUtil.equals(body.get("msg"), expected_msg, "异常提示信息")
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("员工管理")
 @allure.story("分页查询")
 @allure.title("管理端凭证查询员工分页列表")

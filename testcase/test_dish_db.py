@@ -26,7 +26,7 @@ def build_dish_cases():
     return [pytest.param(c["category_id"], c["expect_count"], id=c["id"]) for c in cases]
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("双层校验")
 @allure.story("菜品接口对账数据库")
 @allure.severity(allure.severity_level.NORMAL)

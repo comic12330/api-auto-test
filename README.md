@@ -1,6 +1,6 @@
 # api-auto-test
 
-基于 **Python + pytest + requests** 的接口自动化测试框架，覆盖登录鉴权、越权安全、入参校验、数据库双层校验、接口串联、下单业务链路等场景。被测系统为本地部署的**苍穹外卖**（Spring Boot，管理端 / 用户端双端）。
+基于 **Python + pytest + requests** 的接口自动化测试框架，覆盖登录鉴权、越权安全、入参校验、数据库双层校验、接口串联、下单业务链路等场景。被测系统为本地部署的**食汇本地生活平台**（外卖 / 本地生活类系统，Spring Boot，管理端 / 用户端双端）。
 
 > 本仓库仅包含测试侧代码，不含被测系统的业务源码。
 
@@ -89,8 +89,8 @@ allure open allure-report -p 8081
 
 | 端 | 密钥 | Header | Claims |
 |---|---|---|---|
-| 管理端 | `itcast` | `token` | 登录接口返回 |
-| 用户端 | `itheima` | `authentication` | `{userId: 4}` |
+| 管理端 | 后端 `jwt.admin-secret-key` | `token` | 登录接口返回 |
+| 用户端 | 后端 `jwt.user-secret-key` | `authentication` | `{userId: 4}` |
 
 自签能成立的前提：用户端拦截器**只验签、不查 session** —— 从 header 取 token、用固定密钥验签、取出 `userId` 放入上下文即可，不依赖任何服务端会话状态。
 

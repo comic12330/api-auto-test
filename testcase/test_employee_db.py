@@ -20,12 +20,12 @@ from api.employee_api import (
 )
 from common.assert_util import AssertUtil
 
-# MD5("123456") —— 苍穹外卖新增员工的默认密码。后端在 EmployeeServiceImpl.save()
+# MD5("123456") —— 食汇本地生活平台新增员工的默认密码。后端在 EmployeeServiceImpl.save()
 # 里用 DigestUtils.md5DigestAsHex 加密后落库，所以库里不该出现明文
 MD5_123456 = "e10adc3949ba59abbe56e057f20f883e"
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("双层校验")
 @allure.story("新增员工写后落库")
 @allure.title("新增员工后，数据库应存在该记录且字段正确")
@@ -52,7 +52,7 @@ def test_employee_created_in_db(created_employee):
     AssertUtil.not_equals(row["password"], "123456", "密码不得以明文形式落库")
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("双层校验")
 @allure.story("数据完整性")
 @allure.title("[已知缺陷] 重复身份证号新增员工应被拒绝")

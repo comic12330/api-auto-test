@@ -7,7 +7,7 @@ from api.shopping_api import list_dish
 from common.assert_util import AssertUtil
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("权限安全")
 @allure.story("越权拦截")
 @allure.title("用户端凭证访问管理端接口应被拒绝")
@@ -23,7 +23,7 @@ def test_user_token_cannot_access_admin(user_client, user_token):
     AssertUtil.equals(resp.status_code, 401, "越权访问管理端应返回 401")
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("权限安全")
 @allure.story("正向对照")
 @allure.title("管理端凭证访问管理端接口应正常")
@@ -35,7 +35,7 @@ def test_admin_token_can_access_admin(admin_client):
     AssertUtil.code_ok(resp.json(), 1, "管理端业务码应为 1")
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("权限安全")
 @allure.story("凭证有效性")
 @allure.title("用户端凭证访问用户端接口应正常")
@@ -47,7 +47,7 @@ def test_user_token_can_access_user(user_client):
     AssertUtil.code_ok(resp.json(), 1, "用户端业务码应为 1")
 
 
-@allure.epic("苍穹外卖接口自动化")
+@allure.epic("食汇本地生活平台接口自动化")
 @allure.feature("菜品查询")
 @allure.story("参数校验")
 @allure.title("[已知缺陷] 缺失必填参数 categoryId 应返回 400")
